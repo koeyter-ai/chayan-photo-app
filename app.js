@@ -364,9 +364,25 @@
     Object.keys(FIELDS).forEach(function (id) { info[FIELDS[id]] = $(id).value.trim(); });
     return info;
   }
-  function syncGen() { $('btnGenerate').disabled = !($('chkReviewed').checked && genPhotos.length); }
+  function syncGen() {
+    var ready = isBatch() ? batchSelected().length : genPhotos.length;
+    $('btnGenerate').disabled = !($('chkReviewed').checked && ready);
+  }
   $('chkReviewed').addEventListener('change', function () {
     var info = readForm(), miss = [];
+    if (isBatch()) {
+      var sel = batchSelected();
+      if (!info.project) miss.push('名稱');
+      if (!info.contractor) miss.push('承包廠商');
+      sel.forEach(function (f) {
+        var st = batchRows[f.id];
+        if (!st.item.trim()) miss.push('「' + f.name + '」的工程項目');
+        if (!st.date.trim()) miss.push('「' + f.name + '」的查驗日期');
+      });
+      if (this.checked && !sel.length) { this.checked = false; toast('請先勾選要生成的資料夾'); }
+      else if (this.checked && miss.length) { this.checked = false; toast('還沒填：' + miss.join('、')); }
+      return syncGen();
+    }
     if (!info.project) miss.push('名稱'); if (!info.item) miss.push('工程項目');
     if (!info.contractor) miss.push('承包廠商'); if (!info.date) miss.push('查驗日期');
     if (this.checked && miss.length) { this.checked = false; toast('還沒填：' + miss.join('、')); }
@@ -415,6 +431,7 @@
   }
   $('btnGenerate').addEventListener('click', function () {
     var btn = this, f = current(), info = readForm();
+    if (isBatch()) return runBatch(btn);
     if (!f || f.id !== genFolderId) return toast('資料夾已變更，請重新載入照片');
     if (typeof JSZip === 'undefined') return toast('元件尚未載入，請確認網路後重新開啟 App');
     store.set('form', info);
@@ -446,6 +463,109 @@
       .catch(function (e) { toast('生成失敗：' + e.message); })
       .then(function () { busy(btn, false); syncGen(); });
   });
+
+  /* ---------- 批次生成：一次選多個資料夾 ---------- */
+  var MIME_DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  var MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  var batchRows = {}; // folderId -> { checked, item, date, formNo }
+  function isBatch() { return $('chkBatch').checked; }
+  function resetReview() { $('chkReviewed').checked = false; syncGen(); }
+  function batchSelected() { return folders.filter(function (f) { return batchRows[f.id] && batchRows[f.id].checked; }); }
+  function updateBatchInfo() {
+    var n = batchSelected().length;
+    $('batchInfo').textContent = n ? '已選 ' + n + ' 個資料夾。' : '尚未勾選資料夾。';
+    $('btnGenerate').textContent = isBatch() ? '批次生成查驗單（' + n + ' 個資料夾）' : '生成查驗單（Word + Excel）';
+  }
+  function renderBatch() {
+    var box = $('batchList'); box.innerHTML = '';
+    if (!folders.length) box.textContent = '雲端還沒有資料夾，請先做第 1 步。';
+    folders.forEach(function (f) {
+      // 工程項目預設帶資料夾名稱、日期帶今天
+      var st = batchRows[f.id] || (batchRows[f.id] = { checked: false, item: f.name, date: rocDate(), formNo: '' });
+      var wrap = document.createElement('div'); wrap.className = 'brow';
+      var lab = document.createElement('label'); lab.className = 'check'; lab.style.marginTop = '0';
+      var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = st.checked;
+      var nm = document.createElement('span'); nm.textContent = f.name;
+      lab.appendChild(cb); lab.appendChild(nm); wrap.appendChild(lab);
+      var fields = document.createElement('div'); fields.className = 'fields'; fields.hidden = !st.checked;
+      [['item', '工程項目'], ['date', '查驗日期'], ['formNo', '表單編號（可不填）']].forEach(function (d) {
+        var l = document.createElement('label'); l.textContent = d[1];
+        var inp = document.createElement('input'); inp.type = 'text'; inp.value = st[d[0]];
+        inp.addEventListener('input', function () { st[d[0]] = inp.value; resetReview(); });
+        l.appendChild(inp); fields.appendChild(l);
+      });
+      cb.addEventListener('change', function () { st.checked = cb.checked; fields.hidden = !cb.checked; updateBatchInfo(); resetReview(); });
+      wrap.appendChild(fields); box.appendChild(wrap);
+    });
+    updateBatchInfo();
+  }
+  $('chkBatch').addEventListener('change', function () {
+    $('s4').classList.toggle('batch', this.checked);
+    $('genResult').innerHTML = ''; resetReview(); updateBatchInfo();
+    if (this.checked) { renderBatch(); loadFolders(true).then(renderBatch); }
+  });
+
+  /** 從雲端抓某個資料夾的全部照片 */
+  function fetchPhotos(f, progress) {
+    return api('listPhotos', { folderId: f.id }).then(function (list) {
+      var photos = [];
+      return list.reduce(function (seq, item, i) {
+        return seq.then(function () { progress(i + 1, list.length); return api('getPhoto', { folderId: f.id, fileId: item.id }); })
+          .then(function (r) { return shrink(new Blob([bytesFromB64(r.data)], { type: r.mime || 'image/jpeg' })); })
+          .then(function (s) { return blobBytes(s.blob).then(function (data) { photos.push({ data: data, w: s.w, h: s.h, caption: '' }); }); });
+      }, Promise.resolve()).then(function () { return photos; });
+    });
+  }
+
+  function runBatch(btn) {
+    var sel = batchSelected(), shared = readForm(), done = [], failed = [];
+    if (!sel.length) return toast('請先勾選要生成的資料夾');
+    if (typeof JSZip === 'undefined') return toast('元件尚未載入，請確認網路後重新開啟 App');
+    var zip = new JSZip();
+    store.set('form', Object.assign(store.get('form', {}), { project: shared.project, contractor: shared.contractor, company: shared.company }));
+    busy(btn, true, '批次生成中…');
+    var box = $('genResult'); box.innerHTML = '';
+    var note = document.createElement('p'); note.className = 'hint'; box.appendChild(note);
+    Promise.all([fetchTemplate('photo.docx'), fetchTemplate('form.xlsx')]).then(function (t) {
+      return sel.reduce(function (seq, f, idx) {
+        return seq.then(function () {
+          var st = batchRows[f.id], tag = '（' + (idx + 1) + '/' + sel.length + '）「' + f.name + '」';
+          var info = { company: shared.company, project: shared.project, contractor: shared.contractor,
+            item: st.item.trim(), date: st.date.trim(), formNo: st.formNo.trim() };
+          note.textContent = tag + ' 讀取照片清單…';
+          return fetchPhotos(f, function (i, n) { note.textContent = tag + ' 載入照片 ' + i + ' / ' + n; }).then(function (photos) {
+            if (!photos.length) { failed.push(f.name + '：資料夾裡沒有照片，已略過'); return; }
+            note.textContent = tag + ' 生成查驗單…';
+            return Promise.all([Generate.buildDocx(JSZip, t[0], info, photos), Generate.buildXlsx(JSZip, t[1], info)]).then(function (out) {
+              var safe = f.name.replace(/[\\/:*?"<>|]/g, '');
+              var files = [{ name: '查驗相片_' + safe + '.docx', mime: MIME_DOCX, bytes: out[0] },
+                { name: '工程查驗單_' + safe + '.xlsx', mime: MIME_XLSX, bytes: out[1] }];
+              files.forEach(function (x) { zip.file(safe + '/' + x.name, x.bytes); });
+              done.push(f.name + '（' + photos.length + ' 張）');
+              note.textContent = tag + ' 存到雲端資料夾…';
+              return files.reduce(function (s2, x) {
+                return s2.then(function () {
+                  return api('upload', { folderId: f.id, name: x.name, mime: x.mime, data: b64FromBytes(x.bytes), overwrite: true });
+                });
+              }, Promise.resolve()).catch(function (e) { failed.push(f.name + '：已生成，但存到雲端失敗（' + e.message + '），請用下方 zip 下載'); });
+            });
+          }).catch(function (e) { failed.push(f.name + '：' + e.message); });
+        });
+      }, Promise.resolve());
+    }).then(function () {
+      note.textContent = '完成 ' + done.length + ' 個資料夾' + (done.length ? '：' + done.join('、') : '') + '。';
+      note.className = 'hint ' + (done.length ? 'ok' : 'warn');
+      failed.forEach(function (m) { var p = document.createElement('p'); p.className = 'hint warn'; p.textContent = m; box.appendChild(p); });
+      if (!done.length) return;
+      return zip.generateAsync({ type: 'blob' }).then(function (blob) {
+        var a = document.createElement('a'); a.className = 'btn light'; a.style.textAlign = 'center'; a.style.textDecoration = 'none';
+        a.href = URL.createObjectURL(blob); a.download = '查驗單_批次_' + defaultFolderName() + '.zip';
+        a.textContent = '下載全部（zip，' + done.length + ' 個資料夾）'; box.appendChild(a);
+      });
+    }).then(function () { toast('批次生成結束'); })
+      .catch(function (e) { toast('批次生成失敗：' + e.message); })
+      .then(function () { busy(btn, false); updateBatchInfo(); syncGen(); });
+  }
 
   /* ---------- 設定 ---------- */
   $('btnSettings').addEventListener('click', function () {

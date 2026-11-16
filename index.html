@@ -53,6 +53,13 @@
   #camClose { width:72px; padding:10px 0; font-size:16px; color:#fff; background:#fff3; border:0; border-radius:10px; }
   #camShot { width:74px; height:74px; border-radius:50%; border:5px solid #fff; background:#fff8; }
   #camShot:active { background:#fff; }
+  .batch .single { display:none; }
+  .batchOnly { display:none; }
+  .batch .batchOnly { display:block; }
+  .brow { border-top:1px solid var(--line); padding:10px 0; }
+  .brow .fields { padding:2px 0 4px 32px; }
+  .brow .fields label { margin:6px 0 2px; font-size:13px; }
+  .brow .fields input { padding:8px 10px; font-size:16px; }
   dialog { border:0; border-radius:14px; padding:18px; width:min(92vw,480px); }
   dialog::backdrop { background:#0007; }
   dialog h2 { margin:0 0 8px; font-size:19px; }
@@ -122,16 +129,22 @@
   <section class="step" id="s4">
     <button class="step-btn" data-step="s4"><span class="no">4</span>生成查驗單<span class="state" id="st4"></span></button>
     <div class="panel">
-      <p class="hint" style="margin-top:0">使用資料夾：<b id="genFolder">（尚未選擇）</b></p>
+      <label class="check" style="margin:0 0 10px"><input type="checkbox" id="chkBatch"><span>批次生成（一次選多個資料夾）</span></label>
+      <p class="hint single" style="margin-top:0">使用資料夾：<b id="genFolder">（尚未選擇）</b></p>
       <label for="fProject">名稱（工程名稱）</label><input type="text" id="fProject">
-      <label for="fItem">工程項目</label><input type="text" id="fItem">
+      <label for="fItem" class="single">工程項目</label><input type="text" id="fItem" class="single">
       <label for="fContractor">承包廠商</label><input type="text" id="fContractor">
-      <label for="fDate">查驗日期</label><input type="text" id="fDate">
-      <label for="fFormNo">表單編號</label><input type="text" id="fFormNo">
+      <label for="fDate" class="single">查驗日期</label><input type="text" id="fDate" class="single">
+      <label for="fFormNo" class="single">表單編號</label><input type="text" id="fFormNo" class="single">
       <label for="fCompany">公司名稱（表頭）</label><input type="text" id="fCompany">
-      <button class="btn light" id="btnLoadPhotos">載入雲端資料夾的照片</button>
-      <p class="hint" id="genInfo"></p>
-      <div class="list" id="genList"></div>
+      <button class="btn light single" id="btnLoadPhotos">載入雲端資料夾的照片</button>
+      <p class="hint single" id="genInfo"></p>
+      <div class="list single" id="genList"></div>
+      <div class="batchOnly">
+        <p class="hint">勾選要生成的資料夾，並檢核每一個的工程項目、查驗日期、表單編號。上面的名稱、承包廠商、公司名稱為共用。批次生成不含每張照片的說明。</p>
+        <div id="batchList"></div>
+        <p class="hint" id="batchInfo"></p>
+      </div>
       <label class="check"><input type="checkbox" id="chkReviewed"><span>我已檢核以上「名稱、工程項目、承包廠商、查驗日期」內容正確</span></label>
       <button class="btn" id="btnGenerate" disabled>生成查驗單（Word + Excel）</button>
       <div id="genResult"></div>
