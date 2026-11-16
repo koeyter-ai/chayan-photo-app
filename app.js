@@ -196,7 +196,15 @@
       refreshHeader(); toast('已開啟自動上傳（拍照滿 24 小時後上傳）'); autoUpload();
     };
     // 要求瀏覽器「不要自動清掉」暫存的照片
-    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(done, done); else done();
+    var persist = function () {
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().then(done, done); else done();
+    };
+    // 這時跳出系統的相機權限詢問，之後按「拍照」就能直接開鏡頭
+    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+        .then(function (s) { s.getTracks().forEach(function (t) { t.stop(); }); persist(); },
+          function () { toast('相機權限未允許，拍照時會改用系統相機或相簿'); persist(); });
+    } else persist();
   });
   $('btnRevoke').addEventListener('click', function () {
     if (!confirm('確定要關閉自動上傳嗎？已暫存的照片會留在手機裡。')) return;
@@ -209,26 +217,76 @@
     if (f) setCurrent(f);
   });
   $('btnReload').addEventListener('click', function () { loadFolders().then(function () { toast('資料夾清單已更新'); }); });
-  $('btnCam').addEventListener('click', function () { if (needFolder()) $('camInput').click(); });
+  $('btnCam').addEventListener('click', function () { if (needFolder()) openCamera(); });
+
+  /* App 內建相機：直接開鏡頭，不經過系統的檔案選擇畫面 */
+  var camStream = null, camCount = 0;
+  function openCamera() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return $('camInput').click();
+    navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+    }).then(function (stream) {
+      camStream = stream; camCount = 0;
+      $('camVideo').srcObject = stream;
+      $('camInfo').textContent = '→ ' + current().name;
+      $('cam').hidden = false;
+      return $('camVideo').play();
+    }).catch(function (e) {
+      closeCamera();
+      if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
+        toast('相機權限被拒絕，請到瀏覽器的網站設定允許「相機」');
+      } else {
+        toast('無法直接開啟相機，改用系統相機');
+        $('camInput').click();
+      }
+    });
+  }
+  function closeCamera() {
+    if (camStream) camStream.getTracks().forEach(function (t) { t.stop(); });
+    camStream = null; $('camVideo').srcObject = null; $('cam').hidden = true;
+    renderQueue();
+  }
+  $('camClose').addEventListener('click', closeCamera);
+  $('camShot').addEventListener('click', function () {
+    var v = $('camVideo');
+    if (!v.videoWidth) return;
+    var c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+    c.getContext('2d').drawImage(v, 0, 0);
+    v.style.opacity = '.3'; setTimeout(function () { v.style.opacity = '1'; }, 120);
+    c.toBlob(function (b) {
+      if (!b) return toast('拍照失敗，請再試一次');
+      addBlobs([b], true).then(function () { camCount++; $('camInfo').textContent = '已拍 ' + camCount + ' 張 → ' + current().name; });
+    }, 'image/jpeg', 0.92);
+  });
+  document.addEventListener('visibilitychange', function () { if (document.hidden && camStream) closeCamera(); });
   $('btnPick').addEventListener('click', function () { if (needFolder()) $('pickInput').click(); });
   function needFolder() {
     if (current()) return true;
     toast('請先選擇（或建立）要上傳的資料夾'); return false;
   }
   function addFiles(input) {
-    var files = Array.prototype.slice.call(input.files || []), f = current(), seq = Promise.resolve(), n = 0;
+    var files = Array.prototype.slice.call(input.files || []);
     input.value = '';
+    return addBlobs(files, false);
+  }
+  function addBlobs(files, quiet) {
+    var f = current(), seq = Promise.resolve(), n = 0;
     files.forEach(function (file, i) {
       seq = seq.then(function () { return shrink(file); }).then(function (r) {
         var now = new Date();
         n++;
         return photosDb.put({
-          id: now.getTime() + '_' + i, name: stamp(now) + '_' + pad(i + 1) + '.jpg',
+          id: now.getTime() + '_' + i, name: stamp(now) + '_' + ('00' + now.getMilliseconds()).slice(-3) + pad(i + 1) + '.jpg',
           blob: r.blob, w: r.w, h: r.h, takenAt: now.getTime(), folderId: f.id, folderName: f.name
         });
       }).catch(function (e) { toast(e.message); });
     });
-    seq.then(function () { if (n) toast('已暫存 ' + n + ' 張，24 小時後上傳到「' + f.name + '」'); renderQueue(); });
+    return seq.then(function () {
+      if (quiet) return;
+      if (n) toast('已暫存 ' + n + ' 張，24 小時後上傳到「' + f.name + '」');
+      renderQueue();
+    });
   }
   $('camInput').addEventListener('change', function () { addFiles(this); });
   $('pickInput').addEventListener('change', function () { addFiles(this); });

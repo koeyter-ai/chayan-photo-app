@@ -45,6 +45,14 @@
   .check { display:flex; gap:10px; align-items:flex-start; margin-top:14px; font-size:16px; color:var(--text); }
   .check input { width:22px; height:22px; margin-top:2px; flex:none; }
   #toast { position:fixed; left:50%; bottom:calc(20px + env(safe-area-inset-bottom)); transform:translateX(-50%); background:#222c; color:#fff; padding:10px 16px; border-radius:20px; font-size:15px; max-width:90%; display:none; z-index:9; }
+  #cam { position:fixed; inset:0; background:#000; z-index:8; display:flex; flex-direction:column; }
+  #cam[hidden] { display:none; }
+  #camVideo { flex:1; min-height:0; width:100%; object-fit:contain; transition:opacity .1s; }
+  #camInfo { position:absolute; top:calc(12px + env(safe-area-inset-top)); left:0; right:0; text-align:center; color:#fff; font-size:15px; text-shadow:0 1px 3px #000; }
+  #camBar { flex:none; display:flex; align-items:center; justify-content:space-between; padding:16px 24px calc(20px + env(safe-area-inset-bottom)); }
+  #camClose { width:72px; padding:10px 0; font-size:16px; color:#fff; background:#fff3; border:0; border-radius:10px; }
+  #camShot { width:74px; height:74px; border-radius:50%; border:5px solid #fff; background:#fff8; }
+  #camShot:active { background:#fff; }
   dialog { border:0; border-radius:14px; padding:18px; width:min(92vw,480px); }
   dialog::backdrop { background:#0007; }
   dialog h2 { margin:0 0 8px; font-size:19px; }
@@ -77,7 +85,7 @@
   <section class="step" id="s2">
     <button class="step-btn" data-step="s2"><span class="no">2</span>同意權限・開啟自動上傳<span class="state" id="st2"></span></button>
     <div class="panel">
-      <p style="margin:0">開啟後，你在這個 App 拍的照片會：</p>
+      <p style="margin:0">按下同意後，手機會詢問是否允許使用<b>相機</b>，請選「允許」。之後你在這個 App 拍的照片會：</p>
       <ul class="plain">
         <li>先暫存在手機裡，<b>滿 24 小時才自動上傳</b>到雲端。</li>
         <li>24 小時內可以隨時刪掉不要的照片。</li>
@@ -141,6 +149,16 @@
   <button class="btn light" id="btnCloseSettings">關閉</button>
   <p class="hint" id="setInfo"></p>
 </dialog>
+
+<div id="cam" hidden>
+  <video id="camVideo" playsinline autoplay muted></video>
+  <div id="camInfo"></div>
+  <div id="camBar">
+    <button id="camClose">完成</button>
+    <button id="camShot" aria-label="拍照"></button>
+    <span style="width:72px"></span>
+  </div>
+</div>
 
 <div id="toast"></div>
 
