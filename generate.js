@@ -6,9 +6,6 @@
 (function (rootObj) {
   'use strict';
 
-  var EMU_CM = 360000;
-  var MAX_W = 15.4 * EMU_CM; // 相片格可用寬度
-  var MAX_H = 8.9 * EMU_CM;  // 相片格可用高度
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -32,12 +29,37 @@
     return '<w:tc><w:tcPr><w:tcW w:w="' + w + '" w:type="dxa"/>' + (extra || '') + '</w:tcPr>' + inner + '</w:tc>';
   }
 
-  function drawing(n, cx, cy) {
+  var EMU_DXA = 635;         // 1 dxa（1/20 點）= 635 EMU
+  var CELL_INNER_W = 8940;   // 相片格內寬（格寬 9028 扣掉左右邊界與框線）
+  var CROP_LIMIT = 0.25;     // 為了填滿格子最多裁掉 25%，超過就改為完整顯示
+
+  /**
+   * 照片填滿相片格：比例不同時裁掉多出的部分（不變形）。
+   * 橫向多出：左右平均裁；縱向多出：從上方裁，保留底部的拍攝時間浮水印。
+   */
+  function fitPhoto(photo, rowH) {
+    var W = CELL_INNER_W * EMU_DXA, H = (rowH - 70) * EMU_DXA;
+    var a = photo.w / photo.h, A = W / H, crop = null;
+    if (a > A) { // 照片較寬
+      var cutW = 1 - A / a;
+      if (cutW <= CROP_LIMIT) crop = { l: cutW / 2, r: cutW / 2, t: 0, b: 0 };
+    } else {     // 照片較高
+      var cutH = 1 - a / A;
+      if (cutH <= CROP_LIMIT) crop = { l: 0, r: 0, t: cutH, b: 0 };
+    }
+    if (crop) return { cx: W, cy: H, crop: crop };
+    var s = Math.min(W / photo.w, H / photo.h); // 比例差太多：完整顯示、置中
+    return { cx: Math.round(photo.w * s), cy: Math.round(photo.h * s), crop: null };
+  }
+
+  function drawing(n, cx, cy, crop) {
+    var src = crop ? '<a:srcRect l="' + Math.round(crop.l * 100000) + '" t="' + Math.round(crop.t * 100000) +
+      '" r="' + Math.round(crop.r * 100000) + '" b="' + Math.round(crop.b * 100000) + '"/>' : '';
     return '<w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="' + cx + '" cy="' + cy + '"/>' +
       '<wp:docPr id="' + n + '" name="相片' + n + '"/>' +
       '<a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">' +
       '<pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="' + n + '" name="photo' + n + '.jpeg"/><pic:cNvPicPr/></pic:nvPicPr>' +
-      '<pic:blipFill><a:blip r:embed="rIdPhoto' + n + '"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
+      '<pic:blipFill><a:blip r:embed="rIdPhoto' + n + '"/>' + src + '<a:stretch><a:fillRect/></a:stretch></pic:blipFill>' +
       '<pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="' + cx + '" cy="' + cy + '"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>' +
       '</pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r>';
   }
@@ -45,12 +67,15 @@
   function photoRows(photo, n, height, capHeight) {
     var raw = '';
     if (photo) {
-      var scale = Math.min(MAX_W / photo.w, MAX_H / photo.h);
-      raw = drawing(n, Math.round(photo.w * scale), Math.round(photo.h * scale));
+      var fit = fitPhoto(photo, height);
+      raw = drawing(n, fit.cx, fit.cy, fit.crop);
     }
     var span = '<w:gridSpan w:val="2"/>';
-    return '<w:tr>' + CELL_MAR + '<w:trPr><w:trHeight w:val="' + height + '"/></w:trPr>' +
-      cell(9028, para('', 28, { center: true, raw: raw }), span + '<w:vAlign w:val="center"/>') + '</w:tr>' +
+    // 相片段落不留行距、列高固定，照片才能貼齊格線
+    var photoPara = '<w:p><w:pPr><w:spacing w:before="0" w:after="0" w:line="240" w:lineRule="auto"/><w:jc w:val="center"/>' +
+      '<w:rPr><w:sz w:val="2"/><w:szCs w:val="2"/></w:rPr></w:pPr>' + raw + '</w:p>';
+    return '<w:tr>' + CELL_MAR + '<w:trPr><w:trHeight w:val="' + height + '" w:hRule="exact"/></w:trPr>' +
+      cell(9028, photoPara, span + '<w:vAlign w:val="center"/>') + '</w:tr>' +
       '<w:tr>' + CELL_MAR + '<w:trPr><w:trHeight w:val="' + capHeight + '"/></w:trPr>' +
       cell(9028, para('說明： ' + ((photo && photo.caption) || ''), 28), span) + '</w:tr>';
   }
