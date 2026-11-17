@@ -244,20 +244,42 @@
   }
   function closeCamera() {
     if (camStream) camStream.getTracks().forEach(function (t) { t.stop(); });
-    camStream = null; $('camVideo').srcObject = null; $('cam').hidden = true;
-    renderQueue();
+    camStream = null; $('camVideo').srcObject = null;
+    if (camPending) camStatus('還有 ' + camPending + ' 張儲存中，請稍等…');
+    // 等拍好的照片全部存進手機後才回到清單
+    camSaving.then(function () {
+      $('cam').hidden = true;
+      if (camCount) toast('已暫存 ' + camCount + ' 張，24 小時後上傳到「' + current().name + '」');
+      camCount = 0;
+      renderQueue();
+    });
   }
   $('camClose').addEventListener('click', closeCamera);
+  // 每張照片依序存檔；按「完成」時要等全部存好才關閉
+  var camSaving = Promise.resolve(), camPending = 0;
+  function camStatus(msg, bad) {
+    $('camInfo').textContent = msg; $('camInfo').style.color = bad ? '#ff8a80' : '#fff';
+  }
   $('camShot').addEventListener('click', function () {
     var v = $('camVideo');
-    if (!v.videoWidth) return;
-    var c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
-    c.getContext('2d').drawImage(v, 0, 0);
+    if (!v.videoWidth) return camStatus('鏡頭還沒準備好，請稍等一下再拍', true);
+    // 拍的當下就縮到長邊 1600px，存檔比較快
+    var k = Math.min(1, MAX_EDGE / Math.max(v.videoWidth, v.videoHeight));
+    var c = document.createElement('canvas'); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
     v.style.opacity = '.3'; setTimeout(function () { v.style.opacity = '1'; }, 120);
-    c.toBlob(function (b) {
-      if (!b) return toast('拍照失敗，請再試一次');
-      addBlobs([b], true).then(function () { camCount++; $('camInfo').textContent = '已拍 ' + camCount + ' 張 → ' + current().name; });
-    }, 'image/jpeg', 0.92);
+    camPending++; camStatus('儲存中…（' + camPending + ' 張）');
+    camSaving = camSaving.then(function () {
+      return new Promise(function (res) { c.toBlob(res, 'image/jpeg', 0.92); });
+    }).then(function (b) {
+      if (!b) throw new Error('拍照轉檔失敗，請再試一次');
+      return addBlobs([b], true, true);
+    }).then(function (n) {
+      camPending--;
+      if (n) { camCount += n; camStatus('已存 ' + camCount + ' 張 → ' + current().name + (camPending ? '（還有 ' + camPending + ' 張儲存中）' : '')); }
+    }).catch(function (e) {
+      camPending--; camStatus('這張沒有存到：' + e.message, true);
+    });
   });
   document.addEventListener('visibilitychange', function () { if (document.hidden && camStream) closeCamera(); });
   $('btnPick').addEventListener('click', function () { if (needFolder()) $('pickInput').click(); });
@@ -270,24 +292,35 @@
     input.value = '';
     return addBlobs(files, false);
   }
-  function addBlobs(files, quiet) {
-    var f = current(), seq = Promise.resolve(), n = 0;
+  /** 存進手機暫存。照片以位元組（ArrayBuffer）保存：部分 iPhone 的 Safari 存 Blob 會失敗 */
+  function addBlobs(files, quiet, throwErr) {
+    var f = current(), seq = Promise.resolve(), n = 0, lastErr = null;
     files.forEach(function (file, i) {
       seq = seq.then(function () { return shrink(file); }).then(function (r) {
-        var now = new Date();
-        n++;
-        return photosDb.put({
-          id: now.getTime() + '_' + i, name: stamp(now) + '_' + ('00' + now.getMilliseconds()).slice(-3) + pad(i + 1) + '.jpg',
-          blob: r.blob, w: r.w, h: r.h, takenAt: now.getTime(), folderId: f.id, folderName: f.name
+        return blobBytes(r.blob).then(function (bytes) {
+          var now = new Date();
+          return photosDb.put({
+            id: now.getTime() + '_' + i, name: stamp(now) + '_' + ('00' + now.getMilliseconds()).slice(-3) + pad(i + 1) + '.jpg',
+            data: bytes.buffer, w: r.w, h: r.h, takenAt: now.getTime(), folderId: f.id, folderName: f.name
+          });
         });
-      }).catch(function (e) { toast(e.message); });
+      }).then(function () { n++; }, function (e) {
+        lastErr = new Error('照片暫存失敗：' + (e && (e.message || e.name) || e));
+        if (!throwErr) toast(lastErr.message);
+      });
     });
     return seq.then(function () {
-      if (quiet) return;
-      if (n) toast('已暫存 ' + n + ' 張，24 小時後上傳到「' + f.name + '」');
-      renderQueue();
+      if (throwErr && lastErr && !n) throw lastErr;
+      if (!quiet) {
+        if (n) toast('已暫存 ' + n + ' 張，24 小時後上傳到「' + f.name + '」');
+        renderQueue();
+      }
+      return n;
     });
   }
+  /** 讀取暫存照片（相容舊版用 Blob 存的資料） */
+  function photoBlob(p) { return p.blob || new Blob([p.data], { type: 'image/jpeg' }); }
+  function photoBytes(p) { return p.data ? Promise.resolve(new Uint8Array(p.data)) : blobBytes(p.blob); }
   $('camInput').addEventListener('change', function () { addFiles(this); });
   $('pickInput').addEventListener('change', function () { addFiles(this); });
 
@@ -303,7 +336,7 @@
         var left = p.takenAt + DAY_MS - Date.now();
         var when = left <= 0 ? '已滿 24 小時，等待上傳' : '還有 ' + Math.floor(left / 3600000) + ' 小時 ' + Math.floor(left % 3600000 / 60000) + ' 分上傳';
         var row = document.createElement('div'); row.className = 'item';
-        var img = document.createElement('img'), u = URL.createObjectURL(p.blob); thumbUrls.push(u); img.src = u; img.alt = '';
+        var img = document.createElement('img'), u = URL.createObjectURL(photoBlob(p)); thumbUrls.push(u); img.src = u; img.alt = '';
         var info = document.createElement('div'); info.className = 'info';
         var b = document.createElement('b'); b.textContent = '→ ' + p.folderName;
         var s = document.createElement('span'); s.textContent = new Date(p.takenAt).toLocaleString('zh-TW') + '｜' + when + (p.error ? '｜上次失敗：' + p.error : '');
@@ -327,7 +360,7 @@
     return photosDb.all().then(function (list) {
       var due = list.filter(function (p) { return force || Date.now() - p.takenAt >= DAY_MS; });
       return due.reduce(function (seq, p) {
-        return seq.then(function () { return blobBytes(p.blob); }).then(function (bytes) {
+        return seq.then(function () { return photoBytes(p); }).then(function (bytes) {
           return api('upload', { folderId: p.folderId, name: p.name, mime: 'image/jpeg', data: b64FromBytes(bytes) });
         }).then(function () { count++; return photosDb.del(p.id); })
           .catch(function (e) { p.error = e.message; return photosDb.put(p); });
