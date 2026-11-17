@@ -147,6 +147,7 @@
     folders.forEach(function (f) { sel.add(new Option(f.name, f.id)); });
     if (cur && folders.some(function (f) { return f.id === cur.id; })) sel.value = cur.id;
     else if (folders.length) setCurrent(folders[0]);
+    renderDlFolders();
   }
   function loadFolders(quiet) {
     return api('listFolders').then(function (list) { folders = list; renderFolders(); })
@@ -162,6 +163,7 @@
         sec.classList.add('open');
         if (b.dataset.step === 's1') $('folderName').placeholder = defaultFolderName();
         if (b.dataset.step === 's3') { loadFolders(true); renderQueue(); }
+        if (b.dataset.step === 's5') { renderDlFolders(); loadFolders(true); }
       }
     });
   });
@@ -599,6 +601,93 @@
       .catch(function (e) { toast('批次生成失敗：' + e.message); })
       .then(function () { busy(btn, false); updateBatchInfo(); syncGen(); });
   }
+
+  /* ---------- 第 5 步：下載雲端照片 ---------- */
+  var dlItems = [], dlUrls = [], dlFolderName = '';
+  function renderDlFolders() {
+    var sel = $('dlFolder'), keep = sel.value || (current() && current().id);
+    sel.innerHTML = '';
+    if (!folders.length) sel.add(new Option('（雲端還沒有資料夾）', ''));
+    folders.forEach(function (f) { sel.add(new Option(f.name, f.id)); });
+    if (keep && folders.some(function (f) { return f.id === keep; })) sel.value = keep;
+  }
+  function dlChosen() { return dlItems.filter(function (x) { return x.on; }); }
+  function dlSync() {
+    var n = dlChosen().length;
+    $('dlAll').checked = n === dlItems.length;
+    $('btnDlShare').textContent = '存到手機相簿（' + n + ' 張）';
+    $('btnDlZip').textContent = '下載壓縮檔 zip（' + n + ' 張）';
+    $('btnDlShare').disabled = $('btnDlZip').disabled = !n;
+    $('st5').textContent = dlItems.length ? dlFolderName + '・' + n + '/' + dlItems.length : '';
+  }
+  function dlReset() {
+    dlUrls.forEach(function (u) { URL.revokeObjectURL(u); }); dlUrls = []; dlItems = [];
+    $('dlGrid').innerHTML = ''; $('dlActions').hidden = true; $('dlAllBox').hidden = true; $('st5').textContent = '';
+  }
+  $('dlFolder').addEventListener('change', function () { dlReset(); $('dlInfo').textContent = ''; });
+  $('btnDlLoad').addEventListener('click', function () {
+    var btn = this, id = $('dlFolder').value, f = folders.find(function (x) { return x.id === id; });
+    if (!f) return toast('請先選擇資料夾');
+    dlReset(); dlFolderName = f.name;
+    busy(btn, true, '載入中…');
+    api('listPhotos', { folderId: f.id }).then(function (list) {
+      if (!list.length) { $('dlInfo').textContent = '「' + f.name + '」裡還沒有上傳的照片。'; return; }
+      $('dlAllBox').hidden = false; $('dlActions').hidden = false;
+      return list.reduce(function (seq, item, i) {
+        return seq.then(function () {
+          $('dlInfo').textContent = '載入照片 ' + (i + 1) + ' / ' + list.length + ' …';
+          return api('getPhoto', { folderId: f.id, fileId: item.id });
+        }).then(function (r) {
+          var it = { name: r.name || item.name, blob: new Blob([bytesFromB64(r.data)], { type: r.mime || 'image/jpeg' }), on: true };
+          dlItems.push(it);
+          var cell = document.createElement('label'); cell.className = 'dl on';
+          var img = document.createElement('img'), u = URL.createObjectURL(it.blob); dlUrls.push(u); img.src = u; img.alt = it.name;
+          var cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true;
+          cb.addEventListener('change', function () { it.on = cb.checked; cell.classList.toggle('on', cb.checked); dlSync(); });
+          it.cb = cb; it.cell = cell;
+          cell.appendChild(img); cell.appendChild(cb); $('dlGrid').appendChild(cell);
+          dlSync();
+        });
+      }, Promise.resolve()).then(function () {
+        $('dlInfo').textContent = '「' + f.name + '」共 ' + dlItems.length + ' 張，點照片可取消勾選。';
+      });
+    }).catch(function (e) { $('dlInfo').textContent = ''; toast(e.message); })
+      .then(function () { busy(btn, false); });
+  });
+  $('dlAll').addEventListener('change', function () {
+    var on = this.checked;
+    dlItems.forEach(function (it) { it.on = on; it.cb.checked = on; it.cell.classList.toggle('on', on); });
+    dlSync();
+  });
+  function saveFile(blob, name) {
+    var a = document.createElement('a'), u = URL.createObjectURL(blob);
+    a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(u); }, 60000);
+  }
+  function dlZip() {
+    var sel = dlChosen();
+    if (typeof JSZip === 'undefined') return toast('元件尚未載入，請確認網路後重新開啟 App');
+    var zip = new JSZip(), btn = $('btnDlZip');
+    sel.forEach(function (it) { zip.file(it.name, it.blob); });
+    busy(btn, true, '壓縮中…');
+    zip.generateAsync({ type: 'blob' }).then(function (b) {
+      saveFile(b, dlFolderName.replace(/[\\/:*?"<>|]/g, '') + '_照片.zip');
+      toast('已下載 ' + sel.length + ' 張照片的壓縮檔');
+    }).catch(function (e) { toast('壓縮失敗：' + e.message); })
+      .then(function () { busy(btn, false); dlSync(); });
+  }
+  $('btnDlZip').addEventListener('click', dlZip);
+  $('btnDlShare').addEventListener('click', function () {
+    var files = dlChosen().map(function (it) { return new File([it.blob], it.name, { type: it.blob.type || 'image/jpeg' }); });
+    if (navigator.canShare && navigator.canShare({ files: files })) {
+      navigator.share({ files: files }).catch(function (e) {
+        if (e && e.name !== 'AbortError') toast('分享失敗：' + e.message);
+      });
+    } else {
+      toast('這個瀏覽器不支援直接存到相簿，改為下載壓縮檔');
+      dlZip();
+    }
+  });
 
   /* ---------- 設定 ---------- */
   $('btnSettings').addEventListener('click', function () {
