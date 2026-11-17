@@ -35,7 +35,7 @@
 
   /**
    * 照片填滿相片格：比例不同時裁掉多出的部分（不變形）。
-   * 橫向多出：左右平均裁；縱向多出：從上方裁，保留底部的拍攝時間浮水印。
+   * 橫向多出：左右平均裁；縱向多出：上下平均裁。
    */
   function fitPhoto(photo, rowH) {
     var W = CELL_INNER_W * EMU_DXA, H = (rowH - 70) * EMU_DXA;
@@ -45,7 +45,7 @@
       if (cutW <= CROP_LIMIT) crop = { l: cutW / 2, r: cutW / 2, t: 0, b: 0 };
     } else {     // 照片較高
       var cutH = 1 - a / A;
-      if (cutH <= CROP_LIMIT) crop = { l: 0, r: 0, t: cutH, b: 0 };
+      if (cutH <= CROP_LIMIT) crop = { l: 0, r: 0, t: cutH / 2, b: cutH / 2 };
     }
     if (crop) return { cx: W, cy: H, crop: crop };
     var s = Math.min(W / photo.w, H / photo.h); // 比例差太多：完整顯示、置中
