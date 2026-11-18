@@ -147,7 +147,7 @@
     folders.forEach(function (f) { sel.add(new Option(f.name, f.id)); });
     if (cur && folders.some(function (f) { return f.id === cur.id; })) sel.value = cur.id;
     else if (folders.length) setCurrent(folders[0]);
-    renderDlFolders();
+    renderDlFolders(); renderGenFolders();
   }
   function loadFolders(quiet) {
     return api('listFolders').then(function (list) { folders = list; renderFolders(); })
@@ -164,6 +164,7 @@
         if (b.dataset.step === 's1') $('folderName').placeholder = defaultFolderName();
         if (b.dataset.step === 's3') { loadFolders(true); renderQueue(); }
         if (b.dataset.step === 's5') { renderDlFolders(); loadFolders(true); }
+        if (b.dataset.step === 's4') { renderGenFolders(); loadFolders(true); }
       }
     });
   });
@@ -383,7 +384,7 @@
   /* ---------- 第 4 步：生成查驗單 ---------- */
   var FIELDS = { fProject: 'project', fItem: 'item', fContractor: 'contractor', fDate: 'date', fFormNo: 'formNo', fCompany: 'company' };
   var DEFAULTS = { project: 'KL(二期)前置作業假設工程', item: '', contractor: '正鼎營造股份有限公司', date: '', formNo: '', company: '福華工程股份有限公司' };
-  var genPhotos = [], genFolderId = null;
+  var genPhotos = [], genFolderId = null, genFolderName = '';
 
   function initForm() {
     var saved = store.get('form', {});
@@ -426,11 +427,24 @@
     syncGen();
   });
 
+  /* 第 4 步自己的資料夾選單：預設帶目前資料夾，選了就自動載入 */
+  function renderGenFolders() {
+    var sel = $('genFolderSel'), keep = sel.value || genFolderId || (current() && current().id);
+    sel.innerHTML = '';
+    sel.add(new Option(folders.length ? '— 請選擇資料夾 —' : '（雲端還沒有資料夾）', ''));
+    folders.forEach(function (f) { sel.add(new Option(f.name, f.id)); });
+    if (keep && folders.some(function (f) { return f.id === keep; })) sel.value = keep;
+  }
+  function genFolder() {
+    var id = $('genFolderSel').value;
+    return folders.find(function (x) { return x.id === id; }) || null;
+  }
+  $('genFolderSel').addEventListener('change', function () { if (this.value) $('btnLoadPhotos').click(); });
   $('btnLoadPhotos').addEventListener('click', function () {
-    var btn = this, f = current();
-    if (!f) return toast('請先在第 3 步選擇資料夾');
-    busy(btn, true, '載入中…');
-    genPhotos = []; genFolderId = f.id; $('genList').innerHTML = ''; $('genResult').innerHTML = ''; syncGen(); updateGenCount();
+    var btn = this, f = genFolder();
+    if (!f) return toast('請先選擇要載入照片的資料夾');
+    busy(btn, true, '載入中…'); $('genFolderSel').disabled = true;
+    genPhotos = []; genFolderId = f.id; genFolderName = f.name; $('genList').innerHTML = ''; $('genResult').innerHTML = ''; syncGen(); updateGenCount();
     api('listPhotos', { folderId: f.id }).then(function (list) {
       if (!list.length) { $('genInfo').textContent = '「' + f.name + '」裡還沒有照片（照片要滿 24 小時上傳後才會出現）。'; return; }
       // 照片不多於上限時預設全選；超過就全部不勾，讓使用者自己挑
@@ -449,9 +463,10 @@
           });
         });
       }, Promise.resolve()).then(function () {
-        $('genInfo').textContent = '共 ' + genPhotos.length + ' 張照片。勾選要放進查驗單的照片（最多 ' + SEL_MAX + ' 張），點照片可放大檢視。';
+        $('genInfo').textContent = '「' + f.name + '」共 ' + genPhotos.length + ' 張照片。勾選要放進查驗單的照片（最多 ' + SEL_MAX + ' 張），點照片可放大檢視。';
       });
-    }).catch(function (e) { $('genInfo').textContent = ''; toast(e.message); }).then(function () { busy(btn, false); syncGen(); updateGenCount(); });
+    }).catch(function (e) { $('genInfo').textContent = ''; toast(e.message); })
+      .then(function () { busy(btn, false); $('genFolderSel').disabled = false; syncGen(); updateGenCount(); });
   });
 
   /* ---------- 第 4 步：勾選照片 ---------- */
@@ -568,9 +583,11 @@
     return fetch('templates/' + name).then(function (r) { if (!r.ok) throw new Error('範本讀取失敗：' + name); return r.arrayBuffer(); });
   }
   $('btnGenerate').addEventListener('click', function () {
-    var btn = this, f = current(), info = readForm();
+    var btn = this, info = readForm();
     if (isBatch()) return runBatch(btn);
-    if (!f || f.id !== genFolderId) return toast('資料夾已變更，請重新載入照片');
+    // 查驗單存回「載入照片的那個資料夾」
+    var f = genFolderId ? { id: genFolderId, name: genFolderName } : null;
+    if (!f || $('genFolderSel').value !== genFolderId) return toast('資料夾已變更，請重新載入照片');
     if (typeof JSZip === 'undefined') return toast('元件尚未載入，請確認網路後重新開啟 App');
     store.set('form', info);
     busy(btn, true, '生成中…');

@@ -65,6 +65,9 @@
   .dl.on { border-color:var(--main); }
   .dl img { width:100%; height:100%; object-fit:cover; display:block; }
   .dl input { position:absolute; top:4px; right:4px; width:22px; height:22px; margin:0; }
+  .pickfolder { margin-top:16px; padding:10px 12px 12px; border-radius:10px; background:#f5f7fa; border:1px solid var(--line); }
+  .pickfolder label { margin-top:0; color:var(--text); font-weight:600; }
+  .batch .pickfolder { display:none; }
   .selbar { position:sticky; top:0; z-index:3; margin-top:10px; padding:10px 12px; border-radius:10px; background:#e8f0fb; border:1px solid #b9cdea; font-size:14px; color:var(--sub); }
   .selbar b { font-size:20px; color:var(--main); margin-right:6px; }
   .selbar.full b { color:var(--ok); }
@@ -155,14 +158,20 @@
     <button class="step-btn" data-step="s4"><span class="no">4</span>生成查驗單<span class="state" id="st4"></span></button>
     <div class="panel">
       <label class="check" style="margin:0 0 10px"><input type="checkbox" id="chkBatch"><span>批次生成（一次選多個資料夾）</span></label>
-      <p class="hint single" style="margin-top:0">使用資料夾：<b id="genFolder">（尚未選擇）</b></p>
+      <b id="genFolder" hidden></b>
       <label for="fProject">名稱（工程名稱）</label><input type="text" id="fProject">
       <label for="fItem" class="single">工程項目</label><input type="text" id="fItem" class="single">
       <label for="fContractor">承包廠商</label><input type="text" id="fContractor">
       <label for="fDate" class="single">查驗日期</label><input type="text" id="fDate" class="single">
       <label for="fFormNo" class="single">表單編號</label><input type="text" id="fFormNo" class="single">
       <label for="fCompany">公司名稱（表頭）</label><input type="text" id="fCompany">
-      <button class="btn light single" id="btnLoadPhotos">載入雲端資料夾的照片</button>
+      <div class="pickfolder single">
+        <label for="genFolderSel">要載入照片的雲端資料夾（選了就會自動載入）</label>
+        <div class="row">
+          <select id="genFolderSel"></select>
+          <button class="btn light" id="btnLoadPhotos" style="width:auto;margin-top:0;white-space:nowrap">重新載入</button>
+        </div>
+      </div>
       <p class="hint single" id="genInfo"></p>
       <div class="selbar single" id="genCount" hidden></div>
       <div class="list single" id="genList"></div>
