@@ -400,7 +400,7 @@
     return info;
   }
   function syncGen() {
-    var ready = isBatch() ? batchSelected().length : genPhotos.length;
+    var ready = isBatch() ? batchSelected().length : genChosen().length;
     $('btnGenerate').disabled = !($('chkReviewed').checked && ready);
   }
   $('chkReviewed').addEventListener('change', function () {
@@ -422,6 +422,7 @@
     if (!info.contractor) miss.push('承包廠商'); if (!info.date) miss.push('查驗日期');
     if (this.checked && miss.length) { this.checked = false; toast('還沒填：' + miss.join('、')); }
     if (this.checked && !genPhotos.length) toast('請先按「載入雲端資料夾的照片」');
+    else if (this.checked && !genChosen().length) toast('請先勾選要放進查驗單的照片');
     syncGen();
   });
 
@@ -429,9 +430,11 @@
     var btn = this, f = current();
     if (!f) return toast('請先在第 3 步選擇資料夾');
     busy(btn, true, '載入中…');
-    genPhotos = []; genFolderId = f.id; $('genList').innerHTML = ''; $('genResult').innerHTML = ''; syncGen();
+    genPhotos = []; genFolderId = f.id; $('genList').innerHTML = ''; $('genResult').innerHTML = ''; syncGen(); updateGenCount();
     api('listPhotos', { folderId: f.id }).then(function (list) {
       if (!list.length) { $('genInfo').textContent = '「' + f.name + '」裡還沒有照片（照片要滿 24 小時上傳後才會出現）。'; return; }
+      // 照片不多於上限時預設全選；超過就全部不勾，讓使用者自己挑
+      var preselect = list.length <= SEL_MAX;
       return list.reduce(function (seq, item, i) {
         return seq.then(function () {
           $('genInfo').textContent = '載入照片 ' + (i + 1) + ' / ' + list.length + ' …';
@@ -440,26 +443,126 @@
           var bytes = bytesFromB64(r.data);
           return shrink(new Blob([bytes], { type: r.mime || 'image/jpeg' })).then(function (s) {
             return blobBytes(s.blob).then(function (data) {
-              var p = { name: item.name, data: data, w: s.w, h: s.h, caption: '', blob: s.blob };
-              genPhotos.push(p); addGenRow(p, genPhotos.length);
+              var p = { name: item.name, data: data, w: s.w, h: s.h, caption: '', blob: s.blob, on: preselect };
+              genPhotos.push(p); addGenRow(p, genPhotos.length); updateGenCount();
             });
           });
         });
       }, Promise.resolve()).then(function () {
-        $('genInfo').textContent = '共 ' + genPhotos.length + ' 張照片，會排成 ' + Math.ceil(genPhotos.length / 2) + ' 頁（每頁 2 張）。可在下面填每張的說明。';
+        $('genInfo').textContent = '共 ' + genPhotos.length + ' 張照片。勾選要放進查驗單的照片（最多 ' + SEL_MAX + ' 張），點照片可放大檢視。';
       });
-    }).catch(function (e) { $('genInfo').textContent = ''; toast(e.message); }).then(function () { busy(btn, false); syncGen(); });
+    }).catch(function (e) { $('genInfo').textContent = ''; toast(e.message); }).then(function () { busy(btn, false); syncGen(); updateGenCount(); });
   });
+
+  /* ---------- 第 4 步：勾選照片 ---------- */
+  var SEL_MAX = 12, SEL_MIN = 4;
+  function genChosen() { return genPhotos.filter(function (p) { return p.on; }); }
+  function updateGenCount() {
+    var bar = $('genCount'), total = genPhotos.length, n = genChosen().length;
+    bar.hidden = !total;
+    if (!total) return;
+    var cap = Math.min(SEL_MAX, total);
+    bar.innerHTML = '';
+    var big = document.createElement('b'); big.textContent = '已選 ' + n + ' / ' + cap + ' 張';
+    var sub = document.createElement('span');
+    sub.textContent = '（共 ' + total + ' 張，最多選 ' + SEL_MAX + ' 張' + (n ? '，會排成 ' + Math.ceil(n / 2) + ' 頁' : '') + '）';
+    bar.appendChild(big); bar.appendChild(sub);
+    if (n && n < SEL_MIN && total >= SEL_MIN) {
+      var w = document.createElement('div'); w.className = 'warn'; w.textContent = '建議至少選 ' + SEL_MIN + ' 張'; bar.appendChild(w);
+    }
+    bar.classList.toggle('full', n >= cap);
+    $('viewerCount').textContent = '已選 ' + n + ' / ' + cap;
+  }
+  /** 勾選或取消一張照片；超過上限時擋下來 */
+  function setChosen(p, on) {
+    if (on && !p.on && genChosen().length >= SEL_MAX) {
+      toast('最多只能選 ' + SEL_MAX + ' 張，請先取消其他照片');
+      on = false;
+    }
+    p.on = on;
+    if (p.cb) { p.cb.checked = on; p.row.classList.toggle('picked', on); }
+    $('chkReviewed').checked = false;
+    updateGenCount(); syncGen(); syncViewerPick();
+  }
   function addGenRow(p, n) {
-    var row = document.createElement('div'); row.className = 'item';
-    var img = document.createElement('img'); img.src = URL.createObjectURL(p.blob); img.alt = '';
+    var row = document.createElement('div'); row.className = 'item genrow' + (p.on ? ' picked' : '');
+    var cb = document.createElement('input'); cb.type = 'checkbox'; cb.className = 'pick'; cb.checked = p.on;
+    cb.setAttribute('aria-label', '勾選第 ' + n + ' 張');
+    cb.addEventListener('change', function () { setChosen(p, cb.checked); });
+    var img = document.createElement('img'); img.src = URL.createObjectURL(p.blob); img.alt = '第 ' + n + ' 張';
+    img.title = '點一下放大'; img.style.cursor = 'zoom-in';
+    img.addEventListener('click', function () { openViewer(p); });
     var info = document.createElement('div'); info.className = 'info';
     var b = document.createElement('b'); b.textContent = '第 ' + n + ' 張';
     var inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = '說明（可不填）';
     inp.addEventListener('input', function () { p.caption = inp.value; });
-    info.appendChild(b); info.appendChild(inp); row.appendChild(img); row.appendChild(info);
+    info.appendChild(b); info.appendChild(inp); row.appendChild(cb); row.appendChild(img); row.appendChild(info);
+    p.cb = cb; p.row = row; p.no = n; p.url = img.src;
     $('genList').appendChild(row);
   }
+
+  /* ---------- 放大檢視：滾輪縮放、拖曳移動、Esc 返回 ---------- */
+  var vw = { p: null, s: 1, x: 0, y: 0, drag: null, pinch: null };
+  function viewerApply() { $('viewerImg').style.transform = 'translate(' + vw.x + 'px,' + vw.y + 'px) scale(' + vw.s + ')'; }
+  function syncViewerPick() {
+    if (!vw.p) return;
+    $('viewerPick').textContent = vw.p.on ? '✓ 已勾選（點此取消）' : '勾選這張';
+    $('viewerPick').classList.toggle('on', vw.p.on);
+  }
+  function openViewer(p) {
+    vw.p = p; vw.s = 1; vw.x = 0; vw.y = 0;
+    $('viewerImg').src = p.url; $('viewerTitle').textContent = '第 ' + p.no + ' 張';
+    viewerApply(); syncViewerPick(); updateGenCount();
+    $('viewer').hidden = false; document.body.style.overflow = 'hidden';
+  }
+  function closeViewer() {
+    if (!vw.p) return;
+    var p = vw.p; vw.p = null;
+    $('viewer').hidden = true; document.body.style.overflow = '';
+    // 回到剛才那張照片的位置
+    p.row.scrollIntoView({ block: 'center' });
+    p.row.classList.add('flash'); setTimeout(function () { p.row.classList.remove('flash'); }, 1200);
+    p.cb.focus({ preventScroll: true });
+  }
+  function zoomAt(factor, cx, cy) {
+    var stage = $('viewerStage').getBoundingClientRect();
+    var ns = Math.min(8, Math.max(1, vw.s * factor));
+    // 以游標位置為中心縮放
+    var ox = cx - stage.left - stage.width / 2, oy = cy - stage.top - stage.height / 2;
+    vw.x = ox - (ox - vw.x) * ns / vw.s; vw.y = oy - (oy - vw.y) * ns / vw.s; vw.s = ns;
+    if (ns === 1) { vw.x = 0; vw.y = 0; }
+    viewerApply();
+  }
+  $('viewerStage').addEventListener('wheel', function (e) {
+    e.preventDefault();
+    zoomAt(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY);
+  }, { passive: false });
+  $('viewerStage').addEventListener('mousedown', function (e) {
+    if (e.button !== 0 || vw.s === 1) return;
+    e.preventDefault(); vw.drag = { x: e.clientX - vw.x, y: e.clientY - vw.y };
+  });
+  window.addEventListener('mousemove', function (e) {
+    if (!vw.drag) return; vw.x = e.clientX - vw.drag.x; vw.y = e.clientY - vw.drag.y; viewerApply();
+  });
+  window.addEventListener('mouseup', function () { vw.drag = null; });
+  $('viewerStage').addEventListener('dblclick', function (e) { if (vw.s > 1) { vw.s = 1; vw.x = 0; vw.y = 0; viewerApply(); } else zoomAt(2.5, e.clientX, e.clientY); });
+  // 手機：兩指縮放、單指拖曳
+  function tdist(t) { return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY); }
+  $('viewerStage').addEventListener('touchstart', function (e) {
+    if (e.touches.length === 2) vw.pinch = { d: tdist(e.touches), cx: (e.touches[0].clientX + e.touches[1].clientX) / 2, cy: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+    else if (e.touches.length === 1 && vw.s > 1) vw.drag = { x: e.touches[0].clientX - vw.x, y: e.touches[0].clientY - vw.y };
+  }, { passive: true });
+  $('viewerStage').addEventListener('touchmove', function (e) {
+    if (vw.pinch && e.touches.length === 2) {
+      e.preventDefault(); var d = tdist(e.touches); zoomAt(d / vw.pinch.d, vw.pinch.cx, vw.pinch.cy); vw.pinch.d = d;
+    } else if (vw.drag && e.touches.length === 1) {
+      e.preventDefault(); vw.x = e.touches[0].clientX - vw.drag.x; vw.y = e.touches[0].clientY - vw.drag.y; viewerApply();
+    }
+  }, { passive: false });
+  $('viewerStage').addEventListener('touchend', function () { vw.pinch = null; vw.drag = null; });
+  $('viewerClose').addEventListener('click', closeViewer);
+  $('viewerPick').addEventListener('click', function () { if (vw.p) setChosen(vw.p, !vw.p.on); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && vw.p) { e.preventDefault(); closeViewer(); } });
 
   function fetchTemplate(name) {
     return fetch('templates/' + name).then(function (r) { if (!r.ok) throw new Error('範本讀取失敗：' + name); return r.arrayBuffer(); });
@@ -477,7 +580,8 @@
       { name: '工程查驗單_' + safe + '.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
     ];
     Promise.all([fetchTemplate('photo.docx'), fetchTemplate('form.xlsx')]).then(function (t) {
-      return Promise.all([Generate.buildDocx(JSZip, t[0], info, genPhotos), Generate.buildXlsx(JSZip, t[1], info)]);
+      // 只放勾選的照片，依清單順序排列
+      return Promise.all([Generate.buildDocx(JSZip, t[0], info, genChosen()), Generate.buildXlsx(JSZip, t[1], info)]);
     }).then(function (out) {
       var box = $('genResult'); box.innerHTML = '';
       out.forEach(function (bytes, i) {

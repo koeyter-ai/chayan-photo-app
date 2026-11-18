@@ -65,6 +65,26 @@
   .dl.on { border-color:var(--main); }
   .dl img { width:100%; height:100%; object-fit:cover; display:block; }
   .dl input { position:absolute; top:4px; right:4px; width:22px; height:22px; margin:0; }
+  .selbar { position:sticky; top:0; z-index:3; margin-top:10px; padding:10px 12px; border-radius:10px; background:#e8f0fb; border:1px solid #b9cdea; font-size:14px; color:var(--sub); }
+  .selbar b { font-size:20px; color:var(--main); margin-right:6px; }
+  .selbar.full b { color:var(--ok); }
+  .selbar .warn { margin-top:2px; }
+  .genrow .pick { width:26px; height:26px; flex:none; margin:0; accent-color:var(--main); }
+  .genrow { border-left:4px solid transparent; padding-left:6px; transition:background .3s; }
+  .genrow.picked { border-left-color:var(--main); background:#f3f7fd; }
+  .genrow.flash { background:#fff3c4; }
+  #viewer { position:fixed; inset:0; z-index:10; background:#111; display:flex; flex-direction:column; color:#fff; }
+  #viewer[hidden] { display:none; }
+  #viewerBar, #viewerFoot { flex:none; display:flex; align-items:center; gap:12px; padding:10px 14px; background:#000a; }
+  #viewerBar { padding-top:calc(10px + env(safe-area-inset-top)); }
+  #viewerFoot { padding-bottom:calc(10px + env(safe-area-inset-bottom)); }
+  #viewerCount { color:#9cc3ff; font-weight:600; }
+  #viewerClose { margin-left:auto; background:#fff2; color:#fff; border:0; border-radius:8px; padding:8px 12px; font-size:15px; }
+  #viewerPick { background:#fff; color:var(--main); border:0; border-radius:8px; padding:10px 14px; font-size:16px; font-weight:600; }
+  #viewerPick.on { background:var(--main); color:#fff; }
+  .vhint { font-size:13px; color:#bbb; }
+  #viewerStage { flex:1; min-height:0; overflow:hidden; display:flex; align-items:center; justify-content:center; touch-action:none; cursor:grab; }
+  #viewerImg { max-width:100%; max-height:100%; transform-origin:center center; user-select:none; will-change:transform; }
   dialog { border:0; border-radius:14px; padding:18px; width:min(92vw,480px); }
   dialog::backdrop { background:#0007; }
   dialog h2 { margin:0 0 8px; font-size:19px; }
@@ -144,6 +164,7 @@
       <label for="fCompany">公司名稱（表頭）</label><input type="text" id="fCompany">
       <button class="btn light single" id="btnLoadPhotos">載入雲端資料夾的照片</button>
       <p class="hint single" id="genInfo"></p>
+      <div class="selbar single" id="genCount" hidden></div>
       <div class="list single" id="genList"></div>
       <div class="batchOnly">
         <p class="hint">勾選要生成的資料夾，並檢核每一個的工程項目、查驗日期、表單編號。上面的名稱、承包廠商、公司名稱為共用。批次生成不含每張照片的說明。</p>
@@ -192,6 +213,19 @@
     <button id="camClose">完成</button>
     <button id="camShot" aria-label="拍照"></button>
     <span style="width:72px"></span>
+  </div>
+</div>
+
+<div id="viewer" hidden>
+  <div id="viewerBar">
+    <b id="viewerTitle"></b>
+    <span id="viewerCount"></span>
+    <button id="viewerClose" aria-label="關閉">✕ 返回（Esc）</button>
+  </div>
+  <div id="viewerStage"><img id="viewerImg" alt="" draggable="false"></div>
+  <div id="viewerFoot">
+    <button id="viewerPick"></button>
+    <span class="vhint">滾輪縮放・拖曳移動・雙擊放大/還原</span>
   </div>
 </div>
 
