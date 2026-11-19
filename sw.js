@@ -1,5 +1,5 @@
 /* 讓 App 可以「加入主畫面」並在沒網路時也能開啟、拍照暫存 */
-var CACHE = 'chayan-v1';
+var CACHE = 'chayan-v2';
 var SHELL = ['./', 'index.html', 'app.js', 'generate.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png',
   'templates/photo.docx', 'templates/form.xlsx',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'];

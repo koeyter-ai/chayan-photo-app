@@ -474,15 +474,24 @@
   // 依「選取的先後順序」記錄：第 1 個選的放 Word 第 1 格，依此類推
   var genOrder = [];
   function genChosen() { return genOrder.slice(); }
+  /**
+   * 順序圓圈（SVG）。數字的垂直位置用 dy=0.35em 對齊圓心，
+   * 這是各瀏覽器（含 iPhone Safari）都一致的做法，不會因字型行高而掉出框外。
+   */
+  function badgeSvg(num) {
+    if (!num) {
+      return '<svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="13.5" fill="none" stroke="#c3ccd8" stroke-width="2" stroke-dasharray="3 3"/></svg>';
+    }
+    var size = num >= 10 ? 13 : 16;
+    return '<svg viewBox="0 0 30 30" role="img" aria-label="第 ' + num + ' 順位"><circle cx="15" cy="15" r="15" fill="#1f5fa8"/>' +
+      '<text x="15" y="15" dy="0.35em" text-anchor="middle" fill="#fff" font-size="' + size + '" font-weight="700" ' +
+      'font-family="Arial, Helvetica, sans-serif"' + (num >= 10 ? ' letter-spacing="-0.5"' : '') + '>' + num + '</text></svg>';
+  }
   /** 重畫每張照片的順序號碼 */
   function renderOrder() {
     genPhotos.forEach(function (p) {
       var k = genOrder.indexOf(p);
-      if (p.badge) {
-        p.badge.textContent = k >= 0 ? k + 1 : '';
-        p.badge.classList.toggle('on', k >= 0);
-        p.badge.classList.toggle('two', k >= 9); // 10～12 兩位數字縮小一點
-      }
+      if (p.badge) p.badge.innerHTML = badgeSvg(k >= 0 ? k + 1 : 0);
       if (p.place) p.place.textContent = k >= 0 ? '→ Word 第 ' + (k + 1) + ' 格（第 ' + (Math.floor(k / 2) + 1) + ' 頁' + (k % 2 ? '下' : '上') + '）' : '';
     });
   }
