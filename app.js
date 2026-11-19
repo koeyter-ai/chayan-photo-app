@@ -444,7 +444,7 @@
     var btn = this, f = genFolder();
     if (!f) return toast('請先選擇要載入照片的資料夾');
     busy(btn, true, '載入中…'); $('genFolderSel').disabled = true;
-    genPhotos = []; genFolderId = f.id; genFolderName = f.name; $('genList').innerHTML = ''; $('genResult').innerHTML = ''; syncGen(); updateGenCount();
+    genPhotos = []; genOrder = []; genFolderId = f.id; genFolderName = f.name; $('genList').innerHTML = ''; $('genResult').innerHTML = ''; syncGen(); updateGenCount();
     api('listPhotos', { folderId: f.id }).then(function (list) {
       if (!list.length) { $('genInfo').textContent = '「' + f.name + '」裡還沒有照片（照片要滿 24 小時上傳後才會出現）。'; return; }
       // 照片不多於上限時預設全選；超過就全部不勾，讓使用者自己挑
@@ -471,7 +471,17 @@
 
   /* ---------- 第 4 步：勾選照片 ---------- */
   var SEL_MAX = 12, SEL_MIN = 4;
-  function genChosen() { return genPhotos.filter(function (p) { return p.on; }); }
+  // 依「選取的先後順序」記錄：第 1 個選的放 Word 第 1 格，依此類推
+  var genOrder = [];
+  function genChosen() { return genOrder.slice(); }
+  /** 重畫每張照片的順序號碼 */
+  function renderOrder() {
+    genPhotos.forEach(function (p) {
+      var k = genOrder.indexOf(p);
+      if (p.badge) { p.badge.textContent = k >= 0 ? k + 1 : ''; p.badge.classList.toggle('on', k >= 0); }
+      if (p.place) p.place.textContent = k >= 0 ? '→ Word 第 ' + (k + 1) + ' 格（第 ' + (Math.floor(k / 2) + 1) + ' 頁' + (k % 2 ? '下' : '上') + '）' : '';
+    });
+  }
   function updateGenCount() {
     var bar = $('genCount'), total = genPhotos.length, n = genChosen().length;
     bar.hidden = !total;
@@ -494,10 +504,12 @@
       toast('最多只能選 ' + SEL_MAX + ' 張，請先取消其他照片');
       on = false;
     }
+    if (on && !p.on) genOrder.push(p);                       // 新選的排到最後
+    if (!on && p.on) genOrder.splice(genOrder.indexOf(p), 1); // 取消後，後面的號碼往前補
     p.on = on;
     if (p.cb) { p.cb.checked = on; p.row.classList.toggle('picked', on); }
     $('chkReviewed').checked = false;
-    updateGenCount(); syncGen(); syncViewerPick();
+    renderOrder(); updateGenCount(); syncGen(); syncViewerPick();
   }
   function addGenRow(p, n) {
     var row = document.createElement('div'); row.className = 'item genrow' + (p.on ? ' picked' : '');
@@ -507,13 +519,18 @@
     var img = document.createElement('img'); img.src = URL.createObjectURL(p.blob); img.alt = '第 ' + n + ' 張';
     img.title = '點一下放大'; img.style.cursor = 'zoom-in';
     img.addEventListener('click', function () { openViewer(p); });
+    var badge = document.createElement('span'); badge.className = 'ord'; badge.title = '放進 Word 的順序';
     var info = document.createElement('div'); info.className = 'info';
     var b = document.createElement('b'); b.textContent = '第 ' + n + ' 張';
+    var place = document.createElement('span'); place.className = 'place';
     var inp = document.createElement('input'); inp.type = 'text'; inp.placeholder = '說明（可不填）';
     inp.addEventListener('input', function () { p.caption = inp.value; });
-    info.appendChild(b); info.appendChild(inp); row.appendChild(cb); row.appendChild(img); row.appendChild(info);
-    p.cb = cb; p.row = row; p.no = n; p.url = img.src;
+    info.appendChild(b); info.appendChild(place); info.appendChild(inp);
+    row.appendChild(cb); row.appendChild(badge); row.appendChild(img); row.appendChild(info);
+    p.cb = cb; p.row = row; p.no = n; p.url = img.src; p.badge = badge; p.place = place;
     $('genList').appendChild(row);
+    if (p.on) genOrder.push(p); // 預設全選時，依清單順序編號
+    renderOrder();
   }
 
   /* ---------- 放大檢視：滾輪縮放、拖曳移動、Esc 返回 ---------- */
@@ -521,7 +538,8 @@
   function viewerApply() { $('viewerImg').style.transform = 'translate(' + vw.x + 'px,' + vw.y + 'px) scale(' + vw.s + ')'; }
   function syncViewerPick() {
     if (!vw.p) return;
-    $('viewerPick').textContent = vw.p.on ? '✓ 已勾選（點此取消）' : '勾選這張';
+    var k = genOrder.indexOf(vw.p);
+    $('viewerPick').textContent = k >= 0 ? '✓ 第 ' + (k + 1) + ' 順位（點此取消）' : '選這張（排第 ' + (genOrder.length + 1) + ' 順位）';
     $('viewerPick').classList.toggle('on', vw.p.on);
   }
   function openViewer(p) {
@@ -597,7 +615,7 @@
       { name: '工程查驗單_' + safe + '.xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
     ];
     Promise.all([fetchTemplate('photo.docx'), fetchTemplate('form.xlsx')]).then(function (t) {
-      // 只放勾選的照片，依清單順序排列
+      // 只放選取的照片，依選取順序（1～12 號）排列
       return Promise.all([Generate.buildDocx(JSZip, t[0], info, genChosen()), Generate.buildXlsx(JSZip, t[1], info)]);
     }).then(function (out) {
       var box = $('genResult'); box.innerHTML = '';
