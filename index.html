@@ -76,7 +76,10 @@
   .genrow { border-left:4px solid transparent; padding-left:6px; transition:background .3s; }
   .genrow.picked { border-left-color:var(--main); background:#f3f7fd; }
   .genrow.flash { background:#fff3c4; }
-  .genrow .ord { flex:none; width:30px; height:30px; border-radius:50%; border:2px dashed var(--line); display:grid; place-items:center; font-weight:700; font-size:16px; color:transparent; }
+  .genrow .ord { flex:none; box-sizing:border-box; width:30px; height:30px; padding:0; border-radius:50%; border:2px dashed var(--line);
+    display:flex; align-items:center; justify-content:center; overflow:hidden;
+    font:700 15px/1 -apple-system,"Helvetica Neue",Arial,sans-serif; font-variant-numeric:tabular-nums; letter-spacing:-.5px; color:transparent; }
+  .genrow .ord.two { font-size:13px; letter-spacing:-1px; }
   .genrow .ord.on { border:0; background:var(--main); color:#fff; }
   .genrow .place { display:block; font-size:13px; color:var(--main); min-height:0; }
   #viewer { position:fixed; inset:0; z-index:10; background:#111; display:flex; flex-direction:column; color:#fff; }

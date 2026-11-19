@@ -478,7 +478,11 @@
   function renderOrder() {
     genPhotos.forEach(function (p) {
       var k = genOrder.indexOf(p);
-      if (p.badge) { p.badge.textContent = k >= 0 ? k + 1 : ''; p.badge.classList.toggle('on', k >= 0); }
+      if (p.badge) {
+        p.badge.textContent = k >= 0 ? k + 1 : '';
+        p.badge.classList.toggle('on', k >= 0);
+        p.badge.classList.toggle('two', k >= 9); // 10～12 兩位數字縮小一點
+      }
       if (p.place) p.place.textContent = k >= 0 ? '→ Word 第 ' + (k + 1) + ' 格（第 ' + (Math.floor(k / 2) + 1) + ' 頁' + (k % 2 ? '下' : '上') + '）' : '';
     });
   }
